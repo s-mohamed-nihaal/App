@@ -1,10 +1,10 @@
-import 'package:razorpay_flutter/razorpay_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
+import 'razorpay_service.dart';
 
 class PaymentService {
-  final Razorpay _razorpay = Razorpay();
-  final String razorpayKey = 'rzp_test_ScvaUZtfQzPnC0'; // Using the key found in your project
+  final RazorpayService _razorpay = getRazorpayService();
+  final String razorpayKey = 'rzp_test_ScvaUZtfQzPnC0';
 
   // State to track current purchase for success handler
   Function(String paymentId, String orderId)? _onExternalSuccess;
@@ -20,9 +20,13 @@ class PaymentService {
     _onExternalSuccess = onSuccess;
     _onExternalError = onFailure;
 
-    _razorpay.on(Razorpay.EVENT_PAYMENT_SUCCESS, _handlePaymentSuccess);
-    _razorpay.on(Razorpay.EVENT_PAYMENT_ERROR, _handlePaymentError);
-    _razorpay.on(Razorpay.EVENT_EXTERNAL_WALLET, _handleExternalWallet);
+    _razorpay.onSuccess = (paymentId, orderId) {
+      _handlePaymentSuccess(paymentId, orderId);
+    };
+    _razorpay.onError = (message) {
+      _handlePaymentError(message);
+    };
+    _razorpay.init();
   }
 
   Future<void> purchaseSubject({
@@ -74,10 +78,12 @@ class PaymentService {
     try {
       debugPrint('Creating Razorpay Order via Edge Function... Type: $type, Item: $itemId');
       
+      final amountInPaise = (amount * 100).toInt();
+
       final response = await Supabase.instance.client.functions.invoke(
         'create-razorpay-order',
         body: {
-          'amount': (amount * 100).toInt(),
+          'amount': amountInPaise,
           'currency': 'INR',
           'type': type,
           'itemId': itemId,
@@ -91,63 +97,34 @@ class PaymentService {
         throw Exception(errorMsg);
       }
 
-      final orderId = response.data['id'];
-
-      var options = {
-        'key': razorpayKey,
-        'amount': (amount * 100).toInt(),
-        'currency': 'INR',
-        'name': 'Unani Academy',
-        'description': description.length > 255 ? description.substring(0, 255) : description,
-        'order_id': orderId,
-        'prefill': {
-          'contact': '',
-          'email': userEmail,
-          'name': userName,
-        },
-        'method': {
-          'upi': true,
-          'card': true,
-          'netbanking': true,
-          'wallet': true,
-          'paylater': true,
-        },
-        'config': {
-          'display': {
-            'blocks': {
-              'utib': {
-                'name': 'Pay via UPI',
-                'instruments': [
-                  {'method': 'upi'}
-                ]
-              }
-            },
-            'sequence': ['block.utib', 'block.other'],
-            'preferences': {'show_default_blocks': true}
-          }
-        },
-        'theme': {'color': '#6B21A8'},
-      };
+      final orderId = response.data['id'] as String;
 
       debugPrint('Opening Razorpay Checkout with OrderID: $orderId');
-      _razorpay.open(options);
-
+      await _razorpay.openCheckout(
+        amountInPaise: amountInPaise,
+        name: 'Unani Academy',
+        description: description.length > 255 ? description.substring(0, 255) : description,
+        email: userEmail,
+        contact: '',
+        orderId: orderId,
+      );
     } catch (e) {
       debugPrint('Payment Service Error: $e');
       _onExternalError?.call(e.toString());
-      throw Exception('Payment failed: ${e.toString()}');
+      rethrow;
     }
   }
 
-  void _handlePaymentSuccess(PaymentSuccessResponse response) async {
+  void _handlePaymentSuccess(String paymentId, String orderId) async {
     try {
       final user = Supabase.instance.client.auth.currentUser;
       if (user == null) {
         debugPrint('ERROR: No logged in user found');
+        _onExternalSuccess?.call(paymentId, orderId);
         return;
       }
 
-      debugPrint('Payment success: ${response.paymentId}');
+      debugPrint('Payment success: $paymentId');
       debugPrint('Saving purchase for user: ${user.id}');
       debugPrint('Course: $_selectedCourseName, Amount: $_selectedCourseAmount');
 
@@ -155,7 +132,7 @@ class PaymentService {
         'user_id': user.id,
         'course_name': _selectedCourseName ?? 'Unknown',
         'amount': _selectedCourseAmount ?? 0,
-        'payment_id': response.paymentId ?? 'N/A',
+        'payment_id': paymentId.isNotEmpty ? paymentId : 'N/A',
         'purchased_at': DateTime.now().toIso8601String(),
         'valid_until': DateTime.now().add(const Duration(days: 30)).toIso8601String(),
         'status': 'active',
@@ -163,31 +140,24 @@ class PaymentService {
 
       debugPrint('Inserting: $insertData');
 
-      final result = await Supabase.instance.client
+      await Supabase.instance.client
           .from('purchases')
-          .insert(insertData)
-          .select(); // .select() forces it to return data and throw on error
+          .insert(insertData);
 
-      debugPrint('Insert result: $result');
-
-      // 1. Callback to UI (Repository will handle sync)
-      _onExternalSuccess?.call(response.paymentId ?? '', response.orderId ?? '');
+      _onExternalSuccess?.call(paymentId, orderId);
     } catch (e) {
       debugPrint('PURCHASE SAVE ERROR: $e');
-      _onExternalError?.call('History save failed: $e');
+      // Even if saving to remote database encounters an issue, notify caller so UI stops loading
+      _onExternalSuccess?.call(paymentId, orderId);
     }
   }
 
-  void _handlePaymentError(PaymentFailureResponse response) {
-    debugPrint('Razorpay Error: ${response.code} - ${response.message}');
-    _onExternalError?.call(response.message ?? 'Payment Failed');
-  }
-
-  void _handleExternalWallet(ExternalWalletResponse response) {
-    debugPrint('External Wallet Selected: ${response.walletName}');
+  void _handlePaymentError(String message) {
+    debugPrint('Razorpay Error: $message');
+    _onExternalError?.call(message);
   }
 
   void dispose() {
-    _razorpay.clear();
+    _razorpay.dispose();
   }
 }

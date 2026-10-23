@@ -85,10 +85,11 @@ class CourseRepository {
     
     final allCourses = (response as List).map((json) => Course.fromJson(json)).toList();
     
-    // Deduplicate by SUBJECT name (e.g., if "Anatomy" exists twice, only keep the first one found)
+    // Deduplicate by normalized SUBJECT name (e.g., "Physiology" vs "Physiology Notes")
     final uniqueCoursesMap = <String, Course>{};
     for (final course in allCourses) {
-      final key = course.subject ?? course.title;
+      final rawKey = course.subject ?? course.title;
+      final key = rawKey.toLowerCase().replaceAll('notes', '').trim();
       if (!uniqueCoursesMap.containsKey(key)) {
         uniqueCoursesMap[key] = course;
       }

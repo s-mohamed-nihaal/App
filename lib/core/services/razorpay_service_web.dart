@@ -1,6 +1,5 @@
-// ignore_for_file: avoid_web_libraries_in_flutter, deprecated_member_use
+// ignore_for_file: avoid_web_libraries_in_flutter, deprecated_member_use, uri_does_not_exist, undefined_function
 import 'dart:js' as js;
-// ignore: uri_does_not_exist
 import 'dart:js_util' as js_util;
 import 'package:flutter/foundation.dart';
 import 'razorpay_service_interface.dart';
@@ -36,7 +35,6 @@ class RazorpayServiceImpl implements RazorpayService {
     required String contact,
     String? orderId,
   }) async {
-    // Log the order data before passing to Razorpay
     debugPrint('Initializing Razorpay Checkout with Order: $orderId');
     debugPrint('Amount: $amountInPaise, User: $email');
 
@@ -52,30 +50,8 @@ class RazorpayServiceImpl implements RazorpayService {
         'email': email,
         'contact': contact,
       },
-      'theme': {'color': '#2E3A8C'},
-      'method': {
-        'upi': true,
-        'card': true,
-        'netbanking': true,
-        'wallet': true,
-      },
-      'config': {
-        'display': {
-          'blocks': {
-            'upi': {
-              'name': 'Pay via UPI',
-              'instruments': [
-                {'method': 'upi'}
-              ]
-            }
-          },
-          'sequence': ['block.upi'],
-          'preferences': {'show_default_blocks': true}
-        }
-      },
-      // ignore: undefined_function
+      'theme': {'color': '#6B21A8'},
       'handler': js.allowInterop((response) {
-        // Safe access to JS properties using js_util
         try {
           final paymentId = js_util.getProperty(response, 'razorpay_payment_id') ?? '';
           final respOrderId = js_util.getProperty(response, 'razorpay_order_id') ?? orderId ?? '';
@@ -86,7 +62,6 @@ class RazorpayServiceImpl implements RazorpayService {
         }
       }),
       'modal': {
-        // ignore: undefined_function
         'ondismiss': js.allowInterop(() {
           _onError?.call('Payment Cancelled');
         }),
@@ -96,18 +71,18 @@ class RazorpayServiceImpl implements RazorpayService {
     try {
       final options = js_util.jsify(optionsData);
       
-      // Explicit readiness check for Razorpay SDK
       final razorpayConstructor = js_util.getProperty(js.context, 'Razorpay');
       if (razorpayConstructor == null) {
         debugPrint('CRITICAL: Razorpay SDK (checkout.js) not found in window context.');
-        throw Exception('Razorpay SDK not found. Please ensure the script is loaded in index.html');
+        throw Exception('Razorpay SDK not found. Please ensure checkout.js is loaded.');
       }
 
       final razorpay = js_util.callConstructor(razorpayConstructor, [options]);
       js_util.callMethod(razorpay, 'open', []);
     } catch (e) {
       debugPrint('Razorpay Init Error: $e');
-      _onError?.call('Payment service unavailable. Please check your internet connection and try again.');
+      _onError?.call('Payment service error: $e');
+      rethrow;
     }
   }
 }

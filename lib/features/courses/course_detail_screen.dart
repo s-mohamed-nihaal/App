@@ -127,6 +127,7 @@ class _CourseDetailScreenState extends ConsumerState<CourseDetailScreen> {
         },
         onFailure: (message) {
           if (mounted) {
+            setState(() => _isLoading = false);
             ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Payment failed: $message')));
           }
         },
@@ -142,6 +143,7 @@ class _CourseDetailScreenState extends ConsumerState<CourseDetailScreen> {
         );
       } catch (e) {
         if (mounted) {
+          setState(() => _isLoading = false);
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Checkout Error: $e')));
         }
       }

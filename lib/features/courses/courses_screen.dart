@@ -157,12 +157,12 @@ class _CoursesScreenState extends ConsumerState<CoursesScreen>
               );
 
               final subjectIdToMatch = course.subjectId;
-              final subjectName = (course.subject ?? course.title);
+              final subjectName = (course.subject ?? course.title).toLowerCase().replaceAll('notes', '').trim();
               
               final staticSubject = AppData.curriculum[year]?.firstWhere(
                 (s) => s.id == subjectIdToMatch,
                 orElse: () => AppData.curriculum[year]!.firstWhere(
-                  (s) => s.name.toLowerCase() == subjectName.toLowerCase(),
+                  (s) => s.name.toLowerCase().trim() == subjectName || s.id.toLowerCase() == subjectName,
                   orElse: () => AppData.curriculum[year]!.first,
                 ),
               );
@@ -335,6 +335,7 @@ class _PremiumSubjectCardState extends State<_PremiumSubjectCard> with SingleTic
       },
       onFailure: (message) {
         if (mounted) {
+          setState(() => _isUpdating = false);
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Payment failed: $message')));
         }
       }
@@ -350,6 +351,7 @@ class _PremiumSubjectCardState extends State<_PremiumSubjectCard> with SingleTic
       );
     } catch (e) {
       if (mounted) {
+        setState(() => _isUpdating = false);
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Checkout Error: $e')));
       }
     }
