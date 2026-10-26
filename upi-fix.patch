@@ -1,0 +1,86 @@
+From 262c5f36f9ade0d6530149e8902f442f5e57eef3 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 24 Oct 2026 08:23:23 +0000
+Subject: [PATCH] Fix missing UPI in Razorpay checkout
+
+Declare UPI app queries in AndroidManifest so UPI Intent can detect Google Pay, PhonePe and Paytm on Android 11+, and hide the retired UPI Collect flow in mobile and web checkout config.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_015EkCDUdqVYvvYs3ifsdCay
+---
+ android/app/src/main/AndroidManifest.xml       |  9 +++++++++
+ lib/core/services/razorpay_service_mobile.dart | 15 +++++----------
+ lib/core/services/razorpay_service_web.dart    |  9 +++++++++
+ 3 files changed, 23 insertions(+), 10 deletions(-)
+
+diff --git a/android/app/src/main/AndroidManifest.xml b/android/app/src/main/AndroidManifest.xml
+index fc5cb12..a5dc77e 100644
+--- a/android/app/src/main/AndroidManifest.xml
++++ b/android/app/src/main/AndroidManifest.xml
+@@ -46,6 +46,15 @@
+             <action android:name="android.intent.action.PROCESS_TEXT" />
+             <data android:mimeType="text/plain" />
+         </intent>
++
++        <!-- Razorpay UPI Intent: lets the checkout see installed UPI apps (Android 11+) -->
++        <intent>
++            <action android:name="android.intent.action.VIEW" />
++            <data android:scheme="upi" android:host="pay" />
++        </intent>
++        <package android:name="com.google.android.apps.nbu.paisa.user" />
++        <package android:name="com.phonepe.app" />
++        <package android:name="net.one97.paytm" />
+     </queries>
+ 
+ </manifest>
+diff --git a/lib/core/services/razorpay_service_mobile.dart b/lib/core/services/razorpay_service_mobile.dart
+index 4b34e28..f49004f 100644
+--- a/lib/core/services/razorpay_service_mobile.dart
++++ b/lib/core/services/razorpay_service_mobile.dart
+@@ -71,18 +71,13 @@ class RazorpayServiceImpl implements RazorpayService {
+         'netbanking': true,
+         'wallet': true,
+       },
++      // UPI Collect (manual UPI ID entry) is retired by NPCI; show UPI Intent
++      // (Google Pay, PhonePe, Paytm, ...) only.
+       'config': {
+         'display': {
+-          'blocks': {
+-            'upi': {
+-              'name': 'Pay via UPI',
+-              'instruments': [
+-                {'method': 'upi'}
+-              ]
+-            }
+-          },
+-          'sequence': ['block.upi'],
+-          'preferences': {'show_default_blocks': true}
++          'hide': [
++            {'method': 'upi', 'flows': ['collect']}
++          ]
+         }
+       }
+     };
+diff --git a/lib/core/services/razorpay_service_web.dart b/lib/core/services/razorpay_service_web.dart
+index 34f3736..ab15e1f 100644
+--- a/lib/core/services/razorpay_service_web.dart
++++ b/lib/core/services/razorpay_service_web.dart
+@@ -51,6 +51,15 @@ class RazorpayServiceImpl implements RazorpayService {
+         'contact': contact,
+       },
+       'theme': {'color': '#6B21A8'},
++      // UPI Collect is retired by NPCI. Hiding it makes checkout show UPI QR on
++      // desktop and UPI Intent (Google Pay, PhonePe, Paytm) on mobile web.
++      'config': {
++        'display': {
++          'hide': [
++            {'method': 'upi', 'flows': ['collect']}
++          ]
++        }
++      },
+       'handler': js.allowInterop((response) {
+         try {
+           final paymentId = js_util.getProperty(response, 'razorpay_payment_id') ?? '';
+-- 
+2.43.0
+

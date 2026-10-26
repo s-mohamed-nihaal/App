@@ -26,8 +26,91 @@
   <meta name="apple-mobile-web-app-title" content="unani_academy">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
-  <!-- Razorpay Web SDK (Loaded in head to ensure availability) -->
-  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+  <!--
+    Razorpay Checkout SDK (official): https://checkout.razorpay.com/v1/checkout.js
+
+    The loader below tracks whether the SDK actually finished loading and exposes
+    window.ensureRazorpaySdk(timeoutMs). Flutter awaits that Promise before it
+    opens Checkout, so a slow, blocked or failed download produces a clear error
+    instead of a missing window.Razorpay (or an endless spinner).
+  -->
+  <script>
+    (function () {
+      var SDK_URL = 'https://checkout.razorpay.com/v1/checkout.js';
+      var sdk = window.__razorpaySdk = {
+        status: (typeof window.Razorpay === 'function') ? 'ready' : 'loading',
+        error: null
+      };
+
+      sdk.onLoad = function () {
+        if (typeof window.Razorpay === 'function') {
+          sdk.status = 'ready';
+          sdk.error = null;
+        } else {
+          sdk.status = 'failed';
+          sdk.error = 'checkout.js loaded but window.Razorpay is not defined';
+        }
+      };
+
+      sdk.onError = function () {
+        sdk.status = 'failed';
+        sdk.error = 'Failed to download ' + SDK_URL;
+      };
+
+      // Re-injects the official script (used to retry after a failed load).
+      function inject() {
+        sdk.status = 'loading';
+        sdk.error = null;
+        var s = document.createElement('script');
+        s.src = SDK_URL;
+        s.async = true;
+        s.onload = sdk.onLoad;
+        s.onerror = function () {
+          if (s.parentNode) { s.parentNode.removeChild(s); }
+          sdk.onError();
+        };
+        document.head.appendChild(s);
+      }
+
+      // Resolves once window.Razorpay is available. Rejects with an Error if the
+      // script fails to load (after one automatic retry) or times out.
+      window.ensureRazorpaySdk = function (timeoutMs) {
+        timeoutMs = timeoutMs || 15000;
+        var retriesLeft = 1;
+        var started = Date.now();
+
+        return new Promise(function (resolve, reject) {
+          (function poll() {
+            if (typeof window.Razorpay === 'function') {
+              sdk.status = 'ready';
+              sdk.error = null;
+              resolve(true);
+              return;
+            }
+            if (sdk.status === 'failed') {
+              if (retriesLeft > 0) {
+                retriesLeft--;
+                inject();
+              } else {
+                reject(new Error(sdk.error || 'Razorpay SDK failed to load'));
+                return;
+              }
+            }
+            if (Date.now() - started > timeoutMs) {
+              sdk.status = 'failed';
+              sdk.error = 'Timed out waiting for ' + SDK_URL;
+              reject(new Error(sdk.error));
+              return;
+            }
+            setTimeout(poll, 100);
+          })();
+        });
+      };
+    })();
+  </script>
+  <script src="https://checkout.razorpay.com/v1/checkout.js" async
+          onload="window.__razorpaySdk && window.__razorpaySdk.onLoad()"
+          onerror="window.__razorpaySdk && window.__razorpaySdk.onError()"></script>
 
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png"/>
