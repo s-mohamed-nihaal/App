@@ -25,7 +25,7 @@ class RazorpaySdkLoadException implements Exception {
 
 class RazorpayServiceImpl implements RazorpayService {
   @override
-  final String apiKey = 'rzp_test_ScvaUZtfQzPnC0';
+  final String apiKey = 'rzp_live_TsZwzdte4V7LHz';
 
   static const Duration _sdkLoadTimeout = Duration(seconds: 15);
   static const String _sdkLoadErrorMessage =
