@@ -4,7 +4,7 @@ import 'razorpay_service.dart';
 
 class PaymentService {
   final RazorpayService _razorpay = getRazorpayService();
-  final String razorpayKey = 'rzp_test_ScvaUZtfQzPnC0';
+  final String razorpayKey = 'rzp_live_TsZwzdte4V7LHz';
 
   // State to track current purchase for success handler
   Function(String paymentId, String orderId)? _onExternalSuccess;
