@@ -1,12 +1,15 @@
 abstract class RazorpayService {
-  factory RazorpayService() => throw UnsupportedError('Cannot create a RazorpayService');
+  factory RazorpayService() =>
+      throw UnsupportedError('Cannot create a RazorpayService');
 
   String get apiKey;
-  
-  set onSuccess(Function(String paymentId, String orderId)? callback);
-  set onError(Function(String message)? callback);
+
+  set onSuccess(Function(String, String, String)? callback);
+
+  set onError(Function(String)? callback);
 
   void init();
+
   void dispose();
 
   Future<void> openCheckout({

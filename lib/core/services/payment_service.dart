@@ -1,17 +1,18 @@
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'razorpay_service.dart';
 
 class PaymentService {
   final RazorpayService _razorpay = getRazorpayService();
 
-  // Callbacks
   Function(String paymentId, String orderId)? _onExternalSuccess;
   Function(String message)? _onExternalError;
 
-  // Current purchase details
-  String? _selectedCourseName;
-  int? _selectedCourseAmount;
+  String? _selectedType;
+  String? _selectedItemId;
+
+  // Prevent duplicate handling of the same checkout callback.
+  bool _isVerifyingPayment = false;
 
   void init({
     Function(String paymentId, String orderId)? onSuccess,
@@ -20,14 +21,11 @@ class PaymentService {
     _onExternalSuccess = onSuccess;
     _onExternalError = onFailure;
 
-    _razorpay.onSuccess = (paymentId, orderId) {
-      _handlePaymentSuccess(paymentId, orderId);
+    _razorpay.onSuccess = (paymentId, orderId, signature) {
+      _handlePaymentSuccess(paymentId, orderId, signature);
     };
 
-    _razorpay.onError = (message) {
-      _handlePaymentError(message);
-    };
-
+    _razorpay.onError = _handlePaymentError;
     _razorpay.init();
   }
 
@@ -38,8 +36,12 @@ class PaymentService {
     required String userEmail,
     required String userName,
   }) async {
-    _selectedCourseName = subjectName;
-    _selectedCourseAmount = amount.round();
+    _setPurchaseDetails(
+      name: subjectName,
+      amount: amount,
+      type: 'subject',
+      itemId: subjectId,
+    );
 
     await _createOrderAndPay(
       amount: amount,
@@ -58,8 +60,12 @@ class PaymentService {
     required String userEmail,
     required String userName,
   }) async {
-    _selectedCourseName = bundleName;
-    _selectedCourseAmount = amount.round();
+    _setPurchaseDetails(
+      name: bundleName,
+      amount: amount,
+      type: 'bundle',
+      itemId: bundleId,
+    );
 
     await _createOrderAndPay(
       amount: amount,
@@ -71,6 +77,24 @@ class PaymentService {
     );
   }
 
+  void _setPurchaseDetails({
+    required String name,
+    required double amount,
+    required String type,
+    required String itemId,
+  }) {
+    if (!amount.isFinite || amount <= 0) {
+      throw ArgumentError('Invalid payment amount.');
+    }
+
+    if (itemId.trim().isEmpty) {
+      throw ArgumentError('Invalid purchase item.');
+    }
+
+    _selectedType = type;
+    _selectedItemId = itemId;
+  }
+
   Future<void> _createOrderAndPay({
     required double amount,
     required String type,
@@ -80,59 +104,49 @@ class PaymentService {
     required String userName,
   }) async {
     try {
-      if (!amount.isFinite || amount <= 0) {
-        throw ArgumentError('Invalid payment amount');
+      final client = Supabase.instance.client;
+      final user = client.auth.currentUser;
+
+      if (user == null) {
+        throw Exception('Please sign in before making a purchase.');
       }
 
-      // Convert rupees to paise exactly once.
-      final int amountInPaise = (amount * 100).round();
+      // Convert rupees to paise once.
+      final amountInPaise = (amount * 100).round();
 
-      debugPrint(
-        'Creating Razorpay order: type=$type, itemId=$itemId',
-      );
+      debugPrint('Creating Razorpay order: type=$type, itemId=$itemId');
 
-      final response =
-          await Supabase.instance.client.functions.invoke(
+      final response = await client.functions.invoke(
         'create-razorpay-order',
         body: {
           'amount': amountInPaise,
           'currency': 'INR',
           'type': type,
           'itemId': itemId,
-          'receipt':
-              'rcpt_${DateTime.now().millisecondsSinceEpoch}',
+          'receipt': 'rcpt_${DateTime.now().millisecondsSinceEpoch}',
         },
       );
 
       final data = response.data;
 
-      if (data == null ||
-          data is! Map ||
-          data['id'] == null ||
-          data['id'] is! String) {
-        final errorMessage =
-            data is Map && data['error'] != null
-                ? data['error'].toString()
-                : 'Order creation failed';
+      if (data is! Map ||
+          data['id'] is! String ||
+          (data['id'] as String).isEmpty) {
+        final message = data is Map && data['error'] != null
+            ? data['error'].toString()
+            : 'Unable to create the payment order.';
 
-        throw Exception(errorMessage);
+        throw Exception(message);
       }
 
-      final String orderId = data['id'] as String;
-
-      // Confirm the amount returned by the backend matches
-      // the amount requested before opening checkout.
+      final orderId = data['id'] as String;
       final returnedAmount = data['amount'];
 
-      if (returnedAmount != null &&
-          returnedAmount is num &&
-          returnedAmount != amountInPaise) {
+      if (returnedAmount is! num || returnedAmount != amountInPaise) {
         throw Exception(
-          'Order amount mismatch. Checkout was not opened.',
+          'The order amount could not be confirmed. Please try again.',
         );
       }
-
-      debugPrint('Razorpay order created: $orderId');
 
       await _razorpay.openCheckout(
         amountInPaise: amountInPaise,
@@ -145,9 +159,8 @@ class PaymentService {
         orderId: orderId,
       );
     } catch (e, stackTrace) {
-      debugPrint('Payment Service Error: $e');
+      debugPrint('Payment order error: $e');
       debugPrintStack(stackTrace: stackTrace);
-
       _onExternalError?.call(e.toString());
       rethrow;
     }
@@ -156,62 +169,71 @@ class PaymentService {
   Future<void> _handlePaymentSuccess(
     String paymentId,
     String orderId,
+    String signature,
   ) async {
+    if (_isVerifyingPayment) return;
+    _isVerifyingPayment = true;
+
     try {
-      final user =
-          Supabase.instance.client.auth.currentUser;
+      final client = Supabase.instance.client;
+      final user = client.auth.currentUser;
 
       if (user == null) {
-        throw Exception(
-          'Please sign in again before recording your purchase.',
-        );
+        throw Exception('Your session has expired. Please sign in again.');
       }
 
-      if (paymentId.isEmpty || orderId.isEmpty) {
-        throw Exception(
-          'Missing payment details. Purchase was not recorded.',
-        );
+      if (paymentId.isEmpty || orderId.isEmpty || signature.isEmpty) {
+        throw Exception('Payment verification details are incomplete.');
       }
 
-      debugPrint('Payment callback received: $paymentId');
-      debugPrint('Order ID: $orderId');
+      if (_selectedType == null || _selectedItemId == null) {
+        throw Exception('The purchase details could not be identified.');
+      }
 
-      // IMPORTANT:
-      // This callback alone does NOT verify that a payment is genuine.
-      // Server-side Razorpay signature/payment verification must be
-      // implemented before this purchase is treated as paid.
+      debugPrint('Requesting server-side payment verification.');
 
-      final now = DateTime.now();
+      // The backend must verify the signature, confirm the payment,
+      // validate the order and price, and create the purchase record.
+      // Flutter must not insert directly into the purchases table.
+      final response = await client.functions.invoke(
+        'verify-razorpay-payment',
+        body: {
+          'paymentId': paymentId,
+          'orderId': orderId,
+          'signature': signature,
+          'type': _selectedType,
+          'itemId': _selectedItemId,
+        },
+      );
 
-      final insertData = {
-        'user_id': user.id,
-        'course_name': _selectedCourseName ?? 'Unknown',
-        'amount': _selectedCourseAmount ?? 0,
-        'payment_id': paymentId,
-        'purchased_at': now.toIso8601String(),
-        'valid_until':
-            now.add(const Duration(days: 30)).toIso8601String(),
-        'status': 'active',
-      };
+      final data = response.data;
 
-      await Supabase.instance.client
-          .from('purchases')
-          .insert(insertData);
+      if (data is! Map || data['verified'] != true) {
+        final message = data is Map && data['error'] != null
+            ? data['error'].toString()
+            : 'Payment could not be verified. Contact support if money was deducted.';
+
+        throw Exception(message);
+      }
+
+      debugPrint('Payment verified by server: $paymentId');
 
       _onExternalSuccess?.call(paymentId, orderId);
     } catch (e, stackTrace) {
-      debugPrint('PURCHASE SAVE ERROR: $e');
+      debugPrint('Payment verification error: $e');
       debugPrintStack(stackTrace: stackTrace);
 
       _onExternalError?.call(
-        'Payment callback received, but the purchase '
-        'could not be recorded. Contact support before retrying.',
+        'Payment verification is pending or failed. '
+        'If money was deducted, do not pay again; contact support.',
       );
+    } finally {
+      _isVerifyingPayment = false;
     }
   }
 
   void _handlePaymentError(String message) {
-    debugPrint('Razorpay Error: $message');
+    debugPrint('Razorpay payment error: $message');
     _onExternalError?.call(message);
   }
 
