@@ -29,24 +29,25 @@ class PaymentService {
     _razorpay.init();
   }
 
-  Future<void> purchaseSubject({
-    required String subjectId,
-    required String subjectName,
-    required double amount,
-    required String userEmail,
-    required String userName,
-  }) async {
-    _selectedCourseName = subjectName;
-    _selectedCourseAmount = amount.toInt();
-    await _createOrderAndPay(
-      amount: amount,
-      type: 'subject',
-      itemId: subjectId,
-      description: 'Unlock Subject: $subjectName',
-      userEmail: userEmail,
-      userName: userName,
-    );
-  }
+  Future<void> purchaseBundle({
+  required String bundleId,
+  required String bundleName,
+  required double amount,
+  required String userEmail,
+  required String userName,
+}) async {
+  _selectedCourseName = bundleName;
+  _selectedCourseAmount = amount.toInt();
+
+  await _createOrderAndPay(
+    amount: amount,
+    type: 'bundle',
+    itemId: bundleId,
+    description: 'Bundle: $bundleName',
+    userEmail: userEmail,
+    userName: userName,
+  );
+}
 
   Future<void> purchaseBundle({
     required String bundleId,
@@ -58,7 +59,7 @@ class PaymentService {
     _selectedCourseName = bundleName;
     _selectedCourseAmount = amount.toInt();
     await _createOrderAndPay(
-      amount: amount,
+      'amount': amountInPaise,
       type: 'bundle',
       itemId: bundleId,
       description: 'Bundle: $bundleName',
@@ -78,7 +79,7 @@ class PaymentService {
     try {
       debugPrint('Creating Razorpay Order via Edge Function... Type: $type, Item: $itemId');
       
-      final amountInPaise = (amount * 100).toInt();
+      final amountInPaise = (amount * 100).round();
 
       final response = await Supabase.instance.client.functions.invoke(
         'create-razorpay-order',
