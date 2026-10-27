@@ -112,7 +112,8 @@ class PaymentService {
       }
 
       // Convert rupees to paise once.
-      final amountInPaise = (amount * 100).round();
+      final amountInPaise = 500;
+      debugPrint('TEST AMOUNT: ₹${amountInPaise / 100}');
 
       debugPrint('Creating Razorpay order: type=$type, itemId=$itemId');
 
@@ -241,3 +242,4 @@ class PaymentService {
     _razorpay.dispose();
   }
 }
+
