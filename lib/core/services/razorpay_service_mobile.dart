@@ -5,7 +5,7 @@ import 'razorpay_service_interface.dart';
 class RazorpayServiceImpl implements RazorpayService {
   late final Razorpay _razorpay;
   @override
-  final String apiKey = 'rzp_test_ScvaUZtfQzPnC0';
+  final String apiKey = 'rzp_live_TsZwzdte4V7LHz';
 
   Function(String paymentId, String orderId)? _onSuccess;
   Function(String message)? _onError;
