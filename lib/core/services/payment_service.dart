@@ -1,4 +1,3 @@
-```dart
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
 import 'razorpay_service.dart';
@@ -220,4 +219,3 @@ class PaymentService {
     _razorpay.dispose();
   }
 }
-```
